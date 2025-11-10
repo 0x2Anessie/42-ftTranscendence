@@ -1,0 +1,101 @@
+groups:
+
+- name: recording_rules
+  interval: 30s
+  rules:
+    - record: service:error_rate_5xx
+      expr: |
+        sum by (service) (rate(http_request_duration_seconds_count{status_code=~"5.."}[5m]))
+        /
+        clamp_min(sum by (service) (rate(http_request_duration_seconds_count[5m])), 1)
+
+    - record: service_route:latency_p95_seconds
+      expr: |
+        histogram_quantile(
+          0.95,
+          sum by (service, route, le) (rate(http_request_duration_seconds_bucket[5m]))
+        )
+
+    - record: service:http_req_bucket:rate5m
+      expr: |
+        sum by (service, route, le) (rate(http_request_duration_seconds_bucket[5m]))
+
+    - record: service:http_req_rps:5m
+      expr: |
+        sum by (service, route) (rate(http_request_duration_seconds_count[5m]))
+
+    - record: service:http_req_p50:5m
+      expr: |
+        histogram_quantile(0.50, sum by (service, route, le) (service:http_req_bucket:rate5m))
+
+    - record: service:http_req_p95:5m
+      expr: |
+        histogram_quantile(0.95, sum by (service, route, le) (service:http_req_bucket:rate5m))
+
+    - record: service:http_req_p99:5m
+      expr: |
+        histogram_quantile(0.99, sum by (service, route, le) (service:http_req_bucket:rate5m))
+
+    - record: service:http_error_ratio:5m
+      expr: |
+        sum by (service, route) (rate(http_request_duration_seconds_count{status_code=~"4..|5.."}[5m]))
+        /
+        clamp_min(sum by (service, route) (rate(http_request_duration_seconds_count[5m])), 1)
+
+    - record: service:ws_messages_rps:5m
+      expr: |
+        sum by (service) (rate(ws_messages_total[5m]))
+
+    - record: service:process_cpu_core_usage:2m
+      expr: |
+        sum by (service) (rate(process_cpu_seconds_total[2m]))
+
+- name: alerting_rules
+  rules:
+    - alert: ServiceDown
+      expr: sum by (service) (up) == 0
+      for: 1m
+      labels: { severity: critical }
+      annotations:
+        summary: "Service DOWN ({{ $labels.service | default $labels.job }})"
+        description: "La cible scrape du service est DOWN."
+
+    - alert: HighErrorRate
+      expr: service:error_rate_5xx > 0.05
+      for: 5m
+      labels: { severity: warning }
+      annotations:
+        summary: "Taux d'erreur 5xx > 5% ({{ $labels.service }})"
+        description: "Sur 5 minutes, {{ $labels.service }} dépasse 5% de 5xx."
+
+    - alert: HighLatencyP95
+      expr: service:http_req_p95:5m > 0.5
+      for: 5m
+      labels: { severity: warning }
+      annotations:
+        summary: "p95 latence > 500ms ({{ $labels.service }} {{ $labels.route }})"
+        description: "Latence p95 élevée sur {{ $labels.route }}."
+
+    - alert: ServiceProcessHighCPU
+      expr: service:process_cpu_core_usage:2m > 0.8
+      for: 10m
+      labels: { severity: warning }
+      annotations:
+        summary: "CPU process >80% d'un cœur ({{ $labels.service }})"
+        description: "Charge CPU élevée persistante (moy. 2m)."
+
+    - alert: ServiceProcessHighMemory
+      expr: process_resident_memory_bytes > 300 * 1024 * 1024
+      for: 5m
+      labels: { severity: warning }
+      annotations:
+        summary: "Mémoire process élevée ({{ $labels.service | default $labels.job }})"
+        description: "RSS > 300MiB depuis 5 min."
+
+    - alert: ServiceProcessMemoryLeakSuspected
+      expr: rate(process_resident_memory_bytes[15m]) > 5 * 1024 * 1024
+      for: 30m
+      labels: { severity: warning }
+      annotations:
+        summary: "Suspicion de fuite mémoire ({{ $labels.service | default $labels.job }})"
+        description: "RSS augmente >5MiB/min (15m)."

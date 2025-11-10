@@ -1,0 +1,17 @@
+{
+  "name": "ft-trans-frontend",
+  "private": true,
+  "version": "0.0.1",
+  "scripts": {
+    "build": "tsc && postcss src/styles.css -o dist/output.css && cp index.html dist/index.html && cp public/ws-test.html dist/ws-test.html && cp -r public/images dist/images",
+    "dev": "tsc -w",
+    "prebuild": "mkdir -p dist"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.6",
+    "postcss-cli": "^11.0.1",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.5.0"
+  }
+}
